@@ -5,6 +5,27 @@ LINK = 'http://server.fseconomy.net/data?format=csv&'
 # Passenger weight in kg
 PAX_WEIGHT = 77
 
+ALLOWED_AIRCRAFTS = [
+    'Airbus A320',
+    'Airbus A320 (MSFS)',
+    'Beechcraft King Air 350',
+    'Cessna 208 Caravan',
+    'Socata TBM 930 (MSFS)',
+    'Cessna Citation CJ4 (MSFS)',
+    'Aviat Pitts Special (MSFS)',
+    'Beechcraft Baron 58',
+    'Beechcraft Bonanza A36',
+    'Cessna 152 Aerobat',
+    'Cessna 172 Skyhawk',
+    'Cirrus SR22 G2',
+    'Cub Crafters XCub (MSFS)',
+    'Diamond DA40D DiamondStar',
+    'Diamond DA62',
+    'Mudry CAP 10 (MSFS)',
+    'Robin DR400-100 Cadet (MSFS)',
+    'Savage Cub (MSFS)'
+]
+
 IGNORED_AIRCRAFTS = [
     'Hawker Siddeley HS-748',
     'Bombardier Lear 60',

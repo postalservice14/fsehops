@@ -50,10 +50,14 @@ def load_pickled_assignments():
         assignments = pickle.load(f)
     assignments.Pay = assignments.Pay.astype(int)
     assignments.Amount = assignments.Amount.astype(int)
-    assignments['All-In'] = assignments['All-In'].map(lambda x: True if x == 'true' else False)
     assignments.PtAssignment = assignments.PtAssignment.map(lambda x: True if x == 'true' else False)
     assignments.UnitType = assignments.UnitType.astype(str)
     return assignments
+
+def load_pickled_allowed_aircraft_airports():
+    with open('airports', 'rb') as f:
+        airports = pickle.load(f)
+    return airports
 
 
 def retry(func, *args, **kwargs):

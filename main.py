@@ -5,7 +5,7 @@ import common
 
 
 def do_work(args):
-    fse = FSEconomy(args.local, args.skey)
+    fse = FSEconomy(args.local, args.skey, args.ukey)
 
     for col in fse.assignments.columns:
         if 'Unnamed' in col:
@@ -13,13 +13,16 @@ def do_work(args):
 
     aggregated = fse.get_aggregated_assignments()
 
-    result = pd.DataFrame(columns=['FromIcao', 'ToIcao', 'Amount', 'Pay', 'Assignments', 'PtAssignment', 'All-In',
+    result = pd.DataFrame(columns=['FromIcao', 'ToIcao', 'Amount', 'Pay', 'Assignments',
                                    'MakeModel', 'Location', 'Seats', 'MTOW', 'CruiseSpeed', 'RentalDry', 'RentalWet',
                                    'CraftDistance', 'Distance', 'DryRent', 'WetRent', 'DryEarnings', 'WetEarnings',
                                    'DryRatio', 'WetRatio'])
 
     index = 0
-    for _, row in aggregated.iterrows():
+    size = aggregated.size
+    for rowindex, row in aggregated.iterrows():
+        if rowindex % 100 == 0:
+            print("Completed {} of {}".format(rowindex, size))
         if not args.min and index >= args.limit:
             break
         best_aircraft = fse.get_best_craft(row['FromIcao'], args.radius)
@@ -36,8 +39,10 @@ def do_work(args):
         row['Assignments'] = str(best_assignments['Amount'].tolist())
         row['CraftDistance'] = fse.get_distance(row['FromIcao'], row['aircraft']['Location'])
         row['Distance'] = fse.get_distance(row['FromIcao'], row['ToIcao'])
-        row['DryRent'] = round((row['Distance'] + row['CraftDistance']) * row['aircraft']['RentalDry'] / row['aircraft']['CruiseSpeed'], 2)
-        row['WetRent'] = round((row['Distance'] + row['CraftDistance']) * row['aircraft']['RentalWet'] / row['aircraft']['CruiseSpeed'], 2)
+        row['DryRent'] = round(
+            (row['Distance'] + row['CraftDistance']) * row['aircraft']['RentalDry'] / row['aircraft']['CruiseSpeed'], 2)
+        row['WetRent'] = round(
+            (row['Distance'] + row['CraftDistance']) * row['aircraft']['RentalWet'] / row['aircraft']['CruiseSpeed'], 2)
         row['DryEarnings'] = common.get_earnings(row, 'DryRent')
         row['WetEarnings'] = common.get_earnings(row, 'WetRent')
         if not row['DryEarnings'] + row['WetEarnings']:
@@ -53,7 +58,7 @@ def do_work(args):
 
     # aggregated = aggregated.dropna()
 
-    print(result.sort_values('DryRatio', ascending=False))
+    print(result.sort_values('DryRatio', ascending=False).to_string())
     if args.debug:
         import pdb
         pdb.set_trace()
@@ -62,7 +67,8 @@ def do_work(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--skey', help='Service key')
-    parser.add_argument('--limit', help='Limit for search', type=int, default=10)
+    parser.add_argument('--ukey', help='User key')
+    parser.add_argument('--limit', help='Limit for search', type=int, default=20)
     parser.add_argument('--radius', help='Radius for aircraft search (nm)', type=int, default=50)
     parser.add_argument('--local', help='Use local dump of assignments instead of update', action='store_true')
     parser.add_argument('--debug', help='Use this key to enable debug breakpoints', action='store_true')
