@@ -2,7 +2,7 @@ from urllib.parse import quote
 import pandas as pd
 from io import StringIO
 from urllib.request import urlopen
-from math import radians
+from math import radians, floor
 import pickle
 import numpy as np
 from pulp import LpMaximize, LpProblem, LpVariable
@@ -85,18 +85,24 @@ class FSEconomy(object):
                 aircraft['GPH'] * 1.5)) * fuel_weight
 
     def get_best_assignments(self, row):
+        max_passengers = row['Seats']
+
+        distance = self.get_distance(row['FromIcao'], row['ToIcao'])
+
+        aircraft_fuel = max(self.estimated_fuel(distance, row['aircraft']), common.get_total_fuel(row['aircraft']))
+
         if row['UnitType'] == 'passengers':
             df = self.assignments[(self.assignments.FromIcao == row['FromIcao']) &
                                   (self.assignments.ToIcao == row['ToIcao']) &
                                   (self.assignments.Type != 'VIP') &
                                   (self.assignments.Amount <= row['Seats']) &
                                   (self.assignments.UnitType == 'passengers')]
-        else:
-            distance = self.get_distance(row['FromIcao'], row['ToIcao'])
 
-            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - self.estimated_fuel(distance,
-                                                                                                             row[
-                                                                                                                 'aircraft']))
+            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - aircraft_fuel)
+
+            max_passengers = min(floor(max_cargo / const.PAX_WEIGHT), row['Seats'])
+        else:
+            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - aircraft_fuel)
 
             if max_cargo <= 0:
                 return None
@@ -115,9 +121,9 @@ class FSEconomy(object):
         x_list = [LpVariable('x{}'.format(i), 0, 1, 'Integer') for i in range(1, 1 + len(weight_list))]
         prob += sum([x * p for x, p in zip(x_list, pay_list)]), 'obj'
         if row['UnitType'] == 'passengers':
-            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= row['Seats'], 'c1'
+            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= max_passengers, 'c1'
         else:
-            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= row['aircraft']['MTOW'], 'c1'
+            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= max_cargo, 'c1'
         prob.solve()
         best_assignments = df.iloc[[i for i in range(len(x_list)) if x_list[i].varValue]]
 
@@ -197,7 +203,8 @@ class FSEconomy(object):
         return filtered_airports[distance_vector < nm]
 
     def get_distance(self, from_icao, to_icao):
-        lat1, lon1 = [radians(x) for x in self.all_airports[self.all_airports.icao == from_icao][['lat', 'lon']].iloc[0]]
+        lat1, lon1 = [radians(x) for x in
+                      self.all_airports[self.all_airports.icao == from_icao][['lat', 'lon']].iloc[0]]
         lat2, lon2 = [radians(x) for x in self.all_airports[self.all_airports.icao == to_icao][['lat', 'lon']].iloc[0]]
         return common.get_distance(lat1, lon1, lat2, lon2)
 
