@@ -54,6 +54,7 @@ def load_pickled_assignments():
     assignments.UnitType = assignments.UnitType.astype(str)
     return assignments
 
+
 def load_pickled_allowed_aircraft_airports():
     with open('airports', 'rb') as f:
         airports = pickle.load(f)
@@ -76,4 +77,31 @@ def retry(func, *args, **kwargs):
 
 
 def get_total_fuel(aircraft):
-    return aircraft['Ext1'] + aircraft['LTip'] + aircraft['LAux'] + aircraft['LMain'] + aircraft['Center1'] + aircraft['Center2'] + aircraft['Center3'] + aircraft['RMain'] + aircraft['RAux'] + aircraft['RTip'] + aircraft['RExt2']
+    return round(get_max_fuel(aircraft) * aircraft['PctFuel'])
+
+
+def get_total_fuel_weight(aircraft):
+    return round(get_total_fuel(aircraft) * get_fuel_weight(aircraft))
+
+
+def get_max_fuel(aircraft):
+    return aircraft['Ext1'] + aircraft['LTip'] + aircraft['LAux'] + aircraft['LMain'] + aircraft['Center1'] + aircraft[
+        'Center2'] + aircraft['Center3'] + aircraft['RMain'] + aircraft['RAux'] + aircraft['RTip'] + aircraft['RExt2']
+
+
+def get_max_fuel_weight(aircraft):
+    return round(get_max_fuel(aircraft) * get_fuel_weight(aircraft))
+
+
+def get_fuel_weight(aircraft):
+    return const.JET_A_WEIGHT if aircraft['FuelType'] == 1 else const.LL_WEIGHT
+
+
+def get_estimated_fuel_needed(distance, aircraft):
+    # Add 1.5 hours
+    return (((round(distance / aircraft['CruiseSpeed'], 1)) * aircraft['GPH']) + (
+            aircraft['GPH'] * 1.5))
+
+
+def get_estimated_fuel_needed_weight(distance, aircraft):
+    return round(get_estimated_fuel_needed(distance, aircraft) * get_fuel_weight(aircraft))

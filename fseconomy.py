@@ -2,7 +2,7 @@ from urllib.parse import quote
 import pandas as pd
 from io import StringIO
 from urllib.request import urlopen
-from math import radians, floor
+from math import radians
 import pickle
 import numpy as np
 from pulp import LpMaximize, LpProblem, LpVariable
@@ -73,59 +73,38 @@ class FSEconomy(object):
         aggregated = grouped.aggregate(np.sum)
         return aggregated.sort_values('Pay', ascending=False)
 
-    def max_fuel(self, aircraft):
-        return aircraft['Ext1'] + aircraft['LTip'] + aircraft['LAux'] + aircraft['LMain'] + aircraft['Center1'] \
-               + aircraft['Center2'] + aircraft['Center3'] + aircraft['RMain'] + aircraft['RAux'] + aircraft['RTip'] \
-               + aircraft['RExt2']
-
-    def estimated_fuel(self, distance, aircraft):
-        # Add 1.5 hours
-        fuel_weight = 0.81 if aircraft['FuelType'] == 1 else 0.721
-        return (((round(distance / aircraft['CruiseSpeed'], 1)) * aircraft['GPH']) + (
-                aircraft['GPH'] * 1.5)) * fuel_weight
-
     def get_best_assignments(self, row):
-        max_passengers = row['Seats']
-
-        distance = self.get_distance(row['FromIcao'], row['ToIcao'])
-
-        aircraft_fuel = max(self.estimated_fuel(distance, row['aircraft']), common.get_total_fuel(row['aircraft']))
-
-        if row['UnitType'] == 'passengers':
-            df = self.assignments[(self.assignments.FromIcao == row['FromIcao']) &
-                                  (self.assignments.ToIcao == row['ToIcao']) &
-                                  (self.assignments.Type != 'VIP') &
-                                  (self.assignments.Amount <= row['Seats']) &
-                                  (self.assignments.UnitType == 'passengers')]
-
-            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - aircraft_fuel)
-
-            max_passengers = min(floor(max_cargo / const.PAX_WEIGHT), row['Seats'])
-        else:
-            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - aircraft_fuel)
-
-            if max_cargo <= 0:
-                return None
-
-            df = self.assignments[(self.assignments.FromIcao == row['FromIcao']) &
-                                  (self.assignments.ToIcao == row['ToIcao']) &
-                                  (self.assignments.Type != 'VIP') &
-                                  (self.assignments.Amount <= max_cargo) &
-                                  (self.assignments.UnitType == 'kg')]
+        df = self.assignments[((self.assignments.FromIcao == row['FromIcao']) &
+                               (self.assignments.ToIcao == row['ToIcao']) &
+                               (self.assignments.Type != 'VIP') &
+                               (self.assignments.Amount <= row['MaxPassengers']) &
+                               (self.assignments.UnitType == 'passengers')) |
+                              ((self.assignments.FromIcao == row['FromIcao']) &
+                               (self.assignments.ToIcao == row['ToIcao']) &
+                               (self.assignments.Type != 'VIP') &
+                               (self.assignments.Amount <= row['MaxCargo']) &
+                               (self.assignments.UnitType == 'kg'))]
 
         if not len(df):
             return None
+
+        dfd = df.copy()
+        mask = dfd['UnitType'].str.match('passengers')
+
+        dfd.loc[mask, 'Passengers'] = dfd['Amount']
+        dfd['Passengers'] = dfd['Passengers'].fillna(0)
+        dfd.loc[mask, 'Amount'] *= const.PAX_WEIGHT_KG
+
         prob = LpProblem("KnapsackProblem", LpMaximize)
-        weight_list = df.Amount.tolist()
-        pay_list = df.Pay.tolist()
+        weight_list = dfd.Amount.tolist()
+        pax_list = dfd.Passengers.tolist()
+        pay_list = dfd.Pay.tolist()
         x_list = [LpVariable('x{}'.format(i), 0, 1, 'Integer') for i in range(1, 1 + len(weight_list))]
         prob += sum([x * p for x, p in zip(x_list, pay_list)]), 'obj'
-        if row['UnitType'] == 'passengers':
-            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= max_passengers, 'c1'
-        else:
-            prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= max_cargo, 'c1'
+        prob += sum([x * w for x, w in zip(x_list, pax_list)]) <= row['MaxPassengers'], 'c1'
+        prob += sum([x * w for x, w in zip(x_list, weight_list)]) <= row['MaxCargo'], 'c2'
         prob.solve()
-        best_assignments = df.iloc[[i for i in range(len(x_list)) if x_list[i].varValue]]
+        best_assignments = dfd.iloc[[i for i in range(len(x_list)) if x_list[i].varValue]]
 
         best_vip_assignment = self.get_best_vip_assignment(row)
 
@@ -135,27 +114,16 @@ class FSEconomy(object):
         return best_assignments
 
     def get_best_vip_assignment(self, row):
-        if row['UnitType'] == 'passengers':
-            df = self.assignments[(self.assignments.FromIcao == row['FromIcao']) &
-                                  (self.assignments.ToIcao == row['ToIcao']) &
-                                  (self.assignments.Type == 'VIP') &
-                                  (self.assignments.Amount <= row['Seats']) &
-                                  (self.assignments.UnitType == 'passengers')]
-        else:
-            distance = self.get_distance(row['FromIcao'], row['ToIcao'])
-
-            max_cargo = round(row['aircraft']['MTOW'] - row['aircraft']['EmptyWeight'] - self.estimated_fuel(distance,
-                                                                                                             row[
-                                                                                                                 'aircraft']))
-
-            if max_cargo <= 0:
-                return None
-
-            df = self.assignments[(self.assignments.FromIcao == row['FromIcao']) &
-                                  (self.assignments.ToIcao == row['ToIcao']) &
-                                  (self.assignments.Type == 'VIP') &
-                                  (self.assignments.Amount <= max_cargo) &
-                                  (self.assignments.UnitType == 'kg')]
+        df = self.assignments[((self.assignments.FromIcao == row['FromIcao']) &
+                               (self.assignments.ToIcao == row['ToIcao']) &
+                               (self.assignments.Type == 'VIP') &
+                               (self.assignments.Amount <= row['MaxPassengers']) &
+                               (self.assignments.UnitType == 'passengers')) |
+                              ((self.assignments.FromIcao == row['FromIcao']) &
+                               (self.assignments.ToIcao == row['ToIcao']) &
+                               (self.assignments.Type == 'VIP') &
+                               (self.assignments.Amount <= row['MaxCargo']) &
+                               (self.assignments.UnitType == 'kg'))]
 
         if not len(df):
             return None

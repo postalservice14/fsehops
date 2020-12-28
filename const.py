@@ -3,7 +3,12 @@ AIRCRAFT_FILENAME = 'aircraft.csv'
 LINK = 'http://server.fseconomy.net/data?format=csv&'
 
 # Passenger weight in kg
-PAX_WEIGHT = 77
+PAX_WEIGHT_KG = 77
+
+GALLONS_TO_KG = 2.68735
+
+JET_A_WEIGHT = 0.81
+LL_WEIGHT = 0.721
 
 ALLOWED_AIRCRAFTS = [
     'Airbus A320',
