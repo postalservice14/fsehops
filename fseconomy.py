@@ -1,5 +1,6 @@
 from urllib.parse import quote
 import pandas as pd
+# import modin.pandas as pd
 from io import StringIO
 from urllib.request import urlopen
 from math import radians
@@ -27,6 +28,7 @@ class FSEconomy(object):
 
         self.all_airports = common.load_airports()
         self.aircraft = common.load_aircraft()
+        # self.aircraft = self.load_aircraft()
 
         if local:
             self.allowed_aircraft_airports = common.load_pickled_allowed_aircraft_airports()
@@ -36,6 +38,17 @@ class FSEconomy(object):
             self.allowed_aircraft_airports = self.get_allowed_aircraft_airports()
             self.airports = self.get_airports()
             self.assignments = self.get_assignments()
+
+    def load_aircraft(self):
+        data = StringIO(self.get_aircraft())
+        aircraft = pd.read_csv(data, index_col=0, parse_dates=True)
+        aircraft.columns = ['Model', 'Crew', 'Seats', 'CruiseSpeed', 'GPH', 'FuelType', 'MTOW', 'EmptyWeight', 'Price',
+                            'Ext1', 'LTip', 'LAux', 'LMain', 'Center1', 'Center2', 'Center3', 'RMain', 'RAux', 'RTip',
+                            'RExt2', 'Engines', 'EnginePrice', 'ModelId']
+        aircraft.Seats = aircraft.Seats.astype(int)
+        aircraft.Crew = aircraft.Crew.astype(int)
+        aircraft.CruiseSpeed = aircraft.CruiseSpeed.astype(float)
+        return aircraft
 
     def get_airports(self):
         return self.all_airports[self.all_airports.icao.isin(self.allowed_aircraft_airports.Location)]
@@ -139,28 +152,33 @@ class FSEconomy(object):
         # aircrafts.RentalWet = aircrafts.RentalWet.astype(float)
         return aircrafts
 
-    def get_best_craft(self, icao, radius):
+    def get_close_aircraft(self, icao, radius):
         print('Searching for the best aircraft from {}'.format(icao))
-        max_mtow = 0
-        best_aircraft = None
-        for near_icao in self.get_closest_airports(icao, radius).icao:
+        best_aircraft = []
+        closest_airports = self.get_closest_airports(icao, radius)
+        if closest_airports is None:
+            return None
+
+        for near_icao in closest_airports.icao:
             print('--Searching for the best aircraft from {}'.format(near_icao))
             aircraft = self.get_aircraft_by_icao(near_icao)
             if not len(aircraft):
                 continue
             merged = pd.DataFrame.merge(aircraft, self.aircraft, left_on='MakeModel', right_on='Model', how='inner')
             merged = merged[
-                merged.MakeModel.isin(const.ALLOWED_AIRCRAFTS) & (merged.RentalWet + merged.RentalDry > 0)]
+                     (merged.NeedsRepair != 1) & (merged.RentalWet + merged.RentalDry > 0)]
             if not len(merged):
                 continue
             aircraft = merged.loc[merged.Seats.idxmax()]
-            if aircraft.MTOW > max_mtow:
-                best_aircraft = aircraft
-                max_mtow = aircraft.MTOW
+            best_aircraft.append(aircraft)
         return best_aircraft
 
     def get_closest_airports(self, icao, nm):
-        lat = self.airports[self.airports.icao == icao].lat.iloc[0]
+        airports_to_use = self.airports[self.airports.icao == icao]
+        if len(airports_to_use) == 0:
+            return None
+
+        lat = airports_to_use.lat.iloc[0]
         nm = float(nm)
         # one degree of latitude is appr. 69 nm
         lat_min = lat - nm / 69
@@ -180,6 +198,10 @@ class FSEconomy(object):
         return common.retry(self.get_query, const.LINK + 'query=icao&search=jobsfrom&icaos={}'.format('-'.join(icaos)),
                             error_type=TooManyConnectionsException)
 
+    def get_aircraft(self):
+        return common.retry(self.get_query, const.LINK + 'query=aircraft&search=configs',
+                            error_type=TooManyConnectionsException)
+
     def get_airports_for(self, makeModel):
         print('Searching for the airports with aircraft {}'.format(makeModel))
         return common.retry(self.get_query,
@@ -192,7 +214,7 @@ class FSEconomy(object):
             query_link += '&servicekey={}'.format(self.service_key)
         elif self.user_key:
             query_link += '&userkey={}'.format(self.user_key)
-        while time.time() - self.last_request_time < 6:
+        while time.time() - self.last_request_time < 7:
             time.sleep(1)
         resource = urlopen(query_link)
         result = resource.read().decode(resource.headers.get_content_charset())
